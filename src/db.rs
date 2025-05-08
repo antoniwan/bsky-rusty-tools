@@ -1,20 +1,24 @@
 use anyhow::{Result, Context};
 use chrono::{DateTime, Utc};
 use directories::ProjectDirs;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, Transaction};
 use std::fs;
 use std::path::PathBuf;
 use crate::auth::get_session;
 use crate::api::BLUESKY_API_URL;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Follower {
-    did: String,
-    handle: String,
-    indexed_at: DateTime<Utc>,
+pub struct Follower {
+    pub did: String,
+    pub handle: String,
+    pub indexed_at: DateTime<Utc>,
 }
+
+static DB_CONNECTION: Lazy<Mutex<Option<Connection>>> = Lazy::new(|| Mutex::new(None));
 
 fn get_db_path() -> Result<PathBuf> {
     let proj_dirs = ProjectDirs::from("com", "rusty-tools", "bsky")
@@ -26,10 +30,20 @@ fn get_db_path() -> Result<PathBuf> {
     Ok(data_dir.join("followers.db"))
 }
 
-fn init_db() -> Result<Connection> {
-    let db_path = get_db_path()?;
-    let conn = Connection::open(db_path)?;
+fn get_connection() -> Result<Connection> {
+    let mut conn_guard = DB_CONNECTION.lock().map_err(|_| anyhow::anyhow!("Failed to lock database connection"))?;
+    
+    if conn_guard.is_none() {
+        let db_path = get_db_path()?;
+        let conn = Connection::open(db_path)?;
+        init_db(&conn)?;
+        *conn_guard = Some(conn);
+    }
+    
+    Ok(conn_guard.as_ref().unwrap().clone())
+}
 
+fn init_db(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS followers (
             did TEXT PRIMARY KEY,
@@ -50,7 +64,36 @@ fn init_db() -> Result<Connection> {
         [],
     )?;
 
-    Ok(conn)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    Ok(())
+}
+
+pub fn save_handle(handle: &str) -> Result<()> {
+    let conn = get_connection()?;
+    conn.execute(
+        "INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)",
+        params!["handle", handle],
+    )?;
+    Ok(())
+}
+
+pub fn get_saved_handle() -> Result<Option<String>> {
+    let conn = get_connection()?;
+    let mut stmt = conn.prepare("SELECT value FROM config WHERE key = 'handle'")?;
+    let mut rows = stmt.query([])?;
+    
+    if let Some(row) = rows.next()? {
+        Ok(Some(row.get(0)?))
+    } else {
+        Ok(None)
+    }
 }
 
 pub async fn save_followers() -> Result<()> {
@@ -70,7 +113,7 @@ pub async fn save_followers() -> Result<()> {
     let followers: Vec<Follower> = response.json().await?;
     let followers_count = followers.len();
     
-    let mut conn = init_db()?;
+    let mut conn = get_connection()?;
     let tx = conn.transaction()?;
 
     // Clear existing followers
@@ -105,7 +148,7 @@ pub async fn compare_followers() -> Result<()> {
 
     let current_followers: Vec<Follower> = response.json().await?;
     
-    let mut conn = init_db()?;
+    let mut conn = get_connection()?;
     let tx = conn.transaction()?;
 
     // Get previous followers

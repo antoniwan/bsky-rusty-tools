@@ -1,13 +1,17 @@
+mod api;
 mod auth;
 mod db;
-mod api;
+mod error;
 mod utils;
 
+use error::{AppError, Result};
 use clap::{Parser, Subcommand};
-use anyhow::Result;
+use crate::auth::{login, get_handle};
+use crate::db::save_followers;
+use log::{info, error};
 
 #[derive(Parser)]
-#[command(name = "Rusty Tools", version, author, about = "BlueSky CLI Toolkit in Rust")]
+#[command(author, version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -15,37 +19,40 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Authenticate with Bluesky
+    /// Login to BlueSky
     Login,
-    /// Logout and clear credentials
-    Logout,
-    /// Show your profile info
-    Me,
-    /// Save your current followers into SQLite
+    /// Save followers to database
     SaveFollowers,
-    /// Compare last followers snapshot vs current
-    CompareFollowers,
-    /// Get info for any handle
-    Lookup { handle: String },
-    /// Follow everyone a user is following
-    MirrorFollows { handle: String },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv().ok();
+    // Initialize logging
     env_logger::init();
+    info!("Starting bsky-rusty-tools");
 
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Login => auth::login().await?,
-        Commands::Logout => auth::logout()?,
-        Commands::Me => api::print_my_profile().await?,
-        Commands::SaveFollowers => db::save_followers().await?,
-        Commands::CompareFollowers => db::compare_followers().await?,
-        Commands::Lookup { handle } => api::lookup_profile(&handle).await?,
-        Commands::MirrorFollows { handle } => api::mirror_follows(&handle).await?,
+        Commands::Login => {
+            let handle = get_handle()?;
+            match login(&handle).await {
+                Ok(session) => {
+                    info!("Successfully logged in as {}", session.handle);
+                }
+                Err(e) => {
+                    error!("Login failed: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+        Commands::SaveFollowers => {
+            if let Err(e) = save_followers().await {
+                error!("Failed to save followers: {}", e);
+                return Err(e);
+            }
+            info!("Successfully saved followers");
+        }
     }
 
     Ok(())
