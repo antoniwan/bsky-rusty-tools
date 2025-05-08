@@ -40,3 +40,13 @@ cargo build --release
 1. Create an app password in your BlueSky account settings
 2. Run the tool and use the app password when prompted
 3. Your credentials will be securely stored locally
+
+---
+
+## ⚠️ Project Status
+
+**This project has been discontinued.** It was created as a learning exercise while I was studying Rust fundamentals. The goal was to gain a deeper understanding of Rust's core concepts and best practices through practical application.
+
+While the code may be functional, it should be considered experimental and is not actively maintained. I've moved on to other projects, but I'm keeping this repository public as it might be helpful for others learning Rust or interested in the AT Protocol.
+
+If you're looking for a production-ready BlueSky tool, I recommend checking out some of the more mature projects in the ecosystem.
