@@ -6,7 +6,7 @@
 
 ## 🔧 Features
 
-- 🔐 Authenticate with your BlueSky account
+- 🔐 Authenticate with your BlueSky account using app passwords
 - 🚪 Logout and securely erase stored credentials
 - 👤 Fetch and display your profile info
 - 📥 Save a snapshot of your current followers in a local SQLite database
@@ -25,6 +25,7 @@
 - [Rust (latest stable)](https://www.rust-lang.org/tools/install)
 - [SQLite3](https://www.sqlite.org/)
 - A BlueSky account
+- An app password for your BlueSky account (create one in your account settings)
 
 ### Install
 
@@ -33,3 +34,9 @@ git clone https://github.com/antoniwan/rusty-tools.git
 cd rusty-tools
 cargo build --release
 ```
+
+### First Time Setup
+
+1. Create an app password in your BlueSky account settings
+2. Run the tool and use the app password when prompted
+3. Your credentials will be securely stored locally

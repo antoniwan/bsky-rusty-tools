@@ -82,6 +82,10 @@ static SESSION_MANAGER: Lazy<SessionManager> = Lazy::new(|| SessionManager::new(
 struct LoginRequest {
     identifier: String,
     password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verification_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,17 +109,42 @@ pub fn get_session_path() -> Result<PathBuf> {
 
 pub async fn login(handle: &str) -> Result<Session> {
     info!("Attempting login for handle: {}", handle);
-    let password = prompt_password("Enter your password: ")?;
+    let password = prompt_password("Enter your app password: ")?;
+    let password_clone = password.clone();
 
     let client = Client::new();
-    let response = client
+    let mut response = client
         .post(format!("{}/com.atproto.server.createSession", BLUESKY_API_URL))
         .json(&LoginRequest {
             identifier: handle.to_string(),
-            password,
+            password: password_clone.clone(),
+            app_password: Some(password_clone),
+            verification_code: None,
         })
         .send()
         .await?;
+
+    // Handle email verification if required
+    if !response.status().is_success() {
+        let error_text = response.text().await?;
+        if error_text.contains("AuthFactorTokenRequired") {
+            let verification_code = prompt_password("Enter the verification code sent to your email: ")?;
+            
+            response = client
+                .post(format!("{}/com.atproto.server.createSession", BLUESKY_API_URL))
+                .json(&LoginRequest {
+                    identifier: handle.to_string(),
+                    password: password.clone(),
+                    app_password: Some(password),
+                    verification_code: Some(verification_code),
+                })
+                .send()
+                .await?;
+        } else {
+            error!("Login failed: {}", error_text);
+            return Err(AppError::Auth(error_text));
+        }
+    }
 
     if !response.status().is_success() {
         let error_text = response.text().await?;
