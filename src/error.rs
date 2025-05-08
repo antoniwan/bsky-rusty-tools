@@ -28,6 +28,18 @@ pub enum AppError {
 
     #[error("Session error: {0}")]
     Session(String),
+
+    #[error("Anyhow error: {0}")]
+    Anyhow(#[from] anyhow::Error),
+}
+
+impl From<AppError> for rusqlite::Error {
+    fn from(err: AppError) -> Self {
+        match err {
+            AppError::Database(e) => e,
+            _ => rusqlite::Error::InvalidParameterName(err.to_string()),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, AppError>; 

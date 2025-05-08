@@ -1,7 +1,7 @@
 use anyhow::{Result, Context};
 use chrono::{DateTime, Utc};
 use directories::ProjectDirs;
-use rusqlite::{Connection, params, Transaction};
+use rusqlite::{Connection, params, OptionalExtension};
 use std::fs;
 use std::path::PathBuf;
 use crate::auth::get_session;
@@ -10,6 +10,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use crate::error::Result as AppResult;
+use log::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Follower {
@@ -40,7 +42,11 @@ fn get_connection() -> Result<Connection> {
         *conn_guard = Some(conn);
     }
     
-    Ok(conn_guard.as_ref().unwrap().clone())
+    // Create a new connection since rusqlite::Connection doesn't implement Clone
+    let db_path = get_db_path()?;
+    let conn = Connection::open(db_path)?;
+    init_db(&conn)?;
+    Ok(conn)
 }
 
 fn init_db(conn: &Connection) -> Result<()> {
@@ -75,30 +81,30 @@ fn init_db(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn save_handle(handle: &str) -> Result<()> {
+pub fn save_handle(handle: &str) -> AppResult<()> {
     let conn = get_connection()?;
     conn.execute(
-        "INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)",
-        params!["handle", handle],
+        "INSERT INTO handles (handle) VALUES (?1)",
+        params![handle],
     )?;
     Ok(())
 }
 
-pub fn get_saved_handle() -> Result<Option<String>> {
+pub fn get_saved_handle() -> AppResult<Option<String>> {
     let conn = get_connection()?;
-    let mut stmt = conn.prepare("SELECT value FROM config WHERE key = 'handle'")?;
-    let mut rows = stmt.query([])?;
-    
-    if let Some(row) = rows.next()? {
-        Ok(Some(row.get(0)?))
-    } else {
-        Ok(None)
-    }
+    let mut stmt = conn.prepare("SELECT handle FROM handles ORDER BY id DESC LIMIT 1")?;
+    let handle = stmt.query_row([], |row| row.get(0))
+        .optional()?;
+    Ok(handle)
 }
 
-pub async fn save_followers() -> Result<()> {
-    let session = get_session()?
-        .context("Not logged in. Please run 'login' first")?;
+// Convert DateTime to ISO8601 string for SQLite storage
+fn datetime_to_sqlite(dt: &DateTime<Utc>) -> String {
+    dt.to_rfc3339()
+}
+
+pub async fn save_followers() -> AppResult<()> {
+    let session = get_session()?;
 
     println!("Fetching followers for @{}...", session.handle);
 
@@ -123,7 +129,11 @@ pub async fn save_followers() -> Result<()> {
     for follower in followers {
         tx.execute(
             "INSERT INTO followers (did, handle, indexed_at) VALUES (?1, ?2, ?3)",
-            params![follower.did, follower.handle, follower.indexed_at],
+            params![
+                follower.did,
+                follower.handle,
+                datetime_to_sqlite(&follower.indexed_at)
+            ],
         )?;
     }
 
@@ -132,9 +142,8 @@ pub async fn save_followers() -> Result<()> {
     Ok(())
 }
 
-pub async fn compare_followers() -> Result<()> {
-    let session = get_session()?
-        .context("Not logged in. Please run 'login' first")?;
+pub async fn compare_followers() -> AppResult<()> {
+    let session = get_session()?;
 
     println!("Fetching current followers for @{}...", session.handle);
 
@@ -173,7 +182,12 @@ pub async fn compare_followers() -> Result<()> {
             println!("🆕 New follower: @{}", follower.handle);
             tx.execute(
                 "INSERT INTO follower_diffs (did, handle, action, timestamp) VALUES (?1, ?2, ?3, ?4)",
-                params![follower.did, follower.handle, "follow", Utc::now()],
+                params![
+                    follower.did,
+                    follower.handle,
+                    "follow",
+                    datetime_to_sqlite(&Utc::now())
+                ],
             )?;
         }
     }
@@ -184,7 +198,12 @@ pub async fn compare_followers() -> Result<()> {
             println!("❌ Unfollower: @{}", handle);
             tx.execute(
                 "INSERT INTO follower_diffs (did, handle, action, timestamp) VALUES (?1, ?2, ?3, ?4)",
-                params![did, handle, "unfollow", Utc::now()],
+                params![
+                    did,
+                    handle,
+                    "unfollow",
+                    datetime_to_sqlite(&Utc::now())
+                ],
             )?;
         }
     }

@@ -8,7 +8,7 @@ use error::{AppError, Result};
 use clap::{Parser, Subcommand};
 use crate::auth::{login, get_handle};
 use crate::db::save_followers;
-use log::{info, error, warn};
+use log::{info, error};
 
 /// BlueSky CLI toolset for automation
 #[derive(Parser)]
@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => {
                     error!("Failed to save followers: {}", e);
-                    return Err(AppError::Database(e));
+                    return Err(AppError::Api(format!("Failed to save followers: {}", e)));
                 }
             }
         }
