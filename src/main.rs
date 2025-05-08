@@ -8,8 +8,9 @@ use error::{AppError, Result};
 use clap::{Parser, Subcommand};
 use crate::auth::{login, get_handle};
 use crate::db::save_followers;
-use log::{info, error};
+use log::{info, error, warn};
 
+/// BlueSky CLI toolset for automation
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -19,9 +20,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Login to BlueSky
+    /// Login to BlueSky with your credentials
     Login,
-    /// Save followers to database
+    /// Save your followers to a local database
     SaveFollowers,
 }
 
@@ -42,16 +43,20 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => {
                     error!("Login failed: {}", e);
-                    return Err(e);
+                    return Err(AppError::Auth(format!("Login failed: {}", e)));
                 }
             }
         }
         Commands::SaveFollowers => {
-            if let Err(e) = save_followers().await {
-                error!("Failed to save followers: {}", e);
-                return Err(e);
+            match save_followers().await {
+                Ok(_) => {
+                    info!("Successfully saved followers");
+                }
+                Err(e) => {
+                    error!("Failed to save followers: {}", e);
+                    return Err(AppError::Database(e));
+                }
             }
-            info!("Successfully saved followers");
         }
     }
 

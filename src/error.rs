@@ -19,6 +19,15 @@ pub enum AppError {
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("HTTP request error: {0}")]
+    Request(#[from] reqwest::Error),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Session error: {0}")]
+    Session(String),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>; 
