@@ -78,6 +78,14 @@ fn init_db(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS handles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            handle TEXT NOT NULL
+        )",
+        [],
+    )?;
+
     Ok(())
 }
 
